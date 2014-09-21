@@ -6,6 +6,8 @@ import csv
 import re
 import datetime
 from termcolor import colored
+import cPickle as pickle
+
 
 path = ''
 pattern = ''
@@ -34,33 +36,44 @@ regex = re.compile(pattern, re.IGNORECASE)
 exclude_regex = re.compile(exclude, re.IGNORECASE)
 
 def extract_date(transaction):
-	match = re.search(r'(\dd-\dd-\dd)', transaction['Naam / Omschrijving'])
+	match = re.search(r'\d\d-\d\d-\d\d \d\d:\d\d', transaction['Naam / Omschrijving'])
 	if match:
-		return datetime.datetime.strptime(match.group(1), "%d-%m-%y")
+		return datetime.datetime.strptime(match.group(0), "%d-%m-%y %H:%M")
 	else:
-		match = re.search(r'(\d+-\d+-\d+)', transaction['Datum'])
-		return datetime.datetime.strptime(match.group(1), "%d-%m-%Y")
+		
+		match = re.search(r'\d{8}', transaction['Datum'])
+		return datetime.datetime.strptime(match.group(0), "%Y%m%d")
+
+def get_category(transaction):
+	with open('categories', 'rb') as f:
+		reader = csv.DictReader(f)
+		for row in reader:
+			match=transaction.find(row["Name"])
+			if match>=0:
+				return row["Category"]
+		return ""
 
 def clean_description(transaction):
 	if re.match('\d\d-\d\d-\d\d \d\d:\d\d BETAALAUTOMAAT', transaction['Naam / Omschrijving']):
-		return re.match('(.+)\s+\w\w\w\s\w\w\w\w\w\w\s\w\w\w\w\w\w\s+ING BANK NV PASTRANSACTIES', \
-			transaction['Mededelingen']).group(1).strip()
-	elif re.match('Naam: (?P<bank>.+) Omschrijving: (?P<omschrijving>.+) Kenmerk: (?P<kenmerk>.+) IBAN: (?P<iban>.+)', transaction['Mededelingen']):
+		return "{}\t{}".format(transaction['Mededelingen'][:-61],transaction['Mededelingen'][-60:-47])
+	if re.match('Naam: (?P<bank>.+) Omschrijving: (?P<omschrijving>.+) Kenmerk: (?P<kenmerk>.+) IBAN: (?P<iban>.+)', transaction['Mededelingen']):
 		return re.match('Naam: (?P<bank>.+) Omschrijving: (?P<omschrijving>.+) Kenmerk: (?P<kenmerk>.+) IBAN: (?P<iban>.+)', transaction['Mededelingen']).group('omschrijving').strip()
 	elif re.match('Naam: (?P<bank>.+) Omschrijving: (?P<omschrijving>.+) IBAN: (?P<iban>.+)', transaction['Mededelingen']):
 		matches = re.match('Naam: (?P<bank>.+) Omschrijving: (?P<omschrijving>.+) IBAN: (?P<iban>.+)', transaction['Mededelingen'])
 		return "{} ({})".format(matches.group('omschrijving').strip(), matches.group('bank').strip())
 	else:
-		return "{}\t{}".format(transaction['Naam / Omschrijving'].strip(), transaction['Mededelingen'].strip())
+		return transaction['Mededelingen'].strip()
 
 def print_transaction(transaction):
 	sign = "+" if transaction['Af Bij'] == "Bij" else '-'
 	color = 'red' if sign == '-' else 'green'
-	s = '{sign}{bedrag}\t{date}\t{description}'.format(
+	s = '{cat}\t{sign}{bedrag}\t{date}\t{description}'.format(
 		description=clean_description(transaction),
 		sign=colored(sign, color, attrs=['bold']), 
 		bedrag=colored(transaction['Bedrag (EUR)'], color, attrs=['bold']),
-		date=extract_date(transaction).strftime("%d-%m-%Y"))
+		date=extract_date(transaction).strftime("%d-%m-%Y"),
+		cat=get_category(transaction['Mededelingen'][:-61]))
+
 	print s
 			
 transactions = 0
